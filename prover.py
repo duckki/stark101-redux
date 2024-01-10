@@ -94,6 +94,57 @@ def check_decommit( g, f_domain, f_eval, cp, fri_layers, alpha0, alpha1, alpha2,
 
 
 #=============================================================================
+# Polynomial interploation with FFP
+
+def nearest_power_of_2(n):
+    if n <= 0:
+        raise ValueError("Input must be a positive integer.")
+
+    power = 1
+    while power < n:
+        power *= 2
+
+    return power
+
+def fft_over_finite_field( P: list[FieldElement], w: FieldElement ) -> list[FieldElement]:
+    n = len(P)
+    if n == 1:
+        return P
+
+    w_square = w * w
+    Pe, Po = P[::2], P[1::2]
+    ye, yo = fft_over_finite_field(Pe, w_square), fft_over_finite_field(Po, w_square)
+    y = [FieldElement(0)] * n
+    w_power = FieldElement(1)
+    for j in range(n // 2):
+        u = ye[j]
+        v = (w_power * yo[j])
+        y[j] = u + v
+        y[j + n // 2] = u - v
+        w_power = w_power * w
+    return y
+
+def inverse_fft_over_finite_field( P: list[FieldElement], w: FieldElement ) -> list[FieldElement]:
+    n_inv = FieldElement(len(P)).inverse()
+    result = fft_over_finite_field( P, w.inverse() )
+    return [r * n_inv for r in result]
+
+def interpolate_over_finite_field( y_values, primitive_root ):
+    n = len(y_values)
+    assert n > 0 and (n & (n - 1)) == 0, "n must be a power of 2"
+
+    result = inverse_fft_over_finite_field(y_values, primitive_root)
+    return result
+
+def interpolate_poly2( g, trace ):
+    # Padding `values`, assuming `len(trace) == 1023`
+    padding = nearest_power_of_2( len(trace) ) - len(trace)
+    values = trace + trace[0:padding] # pad with periodic values
+    out = interpolate_over_finite_field( values, g )
+    return Polynomial( out )
+
+
+#=============================================================================
 # Prover
 
 def prove(channel):
@@ -108,7 +159,8 @@ def prove(channel):
     # Create the polynomial representing the trace.
     # Note: G may be longer than the trace.
     print( "Polynomial interpolation..." )
-    f = interpolate_poly( G[:len(trace)], trace )
+    # f = interpolate_poly( G[:len(trace)], trace )
+    f = interpolate_poly2( g, trace ) # a different polynomial with a higher degree!
 
     # Low Degree Extension
     print( "Low Degree Extension..." )
